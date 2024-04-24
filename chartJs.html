@@ -1,0 +1,220 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chart Display</title>
+    
+    <link href="../bootstrap/bootstrap.min.css" rel="stylesheet">
+    <script src="../bootstrap/bootstrap.bundle.min.js"></script>
+
+    <script src="jquery-3.6.0.min.js"></script>
+
+    <script src="chart.js"></script>
+</head>
+<body>
+    <!-- <?php
+        require 'getChartData.php'
+    ?> -->
+    <div class="row m-5">
+        <div class="col-2 border border-2 p-2 border-secondary">
+            <div class="dropdown">
+                <button class="btn btn-primary dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">
+                    Control No.
+                </button>
+                <ul class="dropdown-menu" id="equipmentDropdown"></ul>
+            </div>
+            <br>
+            <div class="dropdown">
+                <button class="btn btn-primary dropdown-toggle disabled" id="disabledParameter" type="button" data-bs-toggle="dropdown" aria-expanded="false">
+                    Parameters
+                </button>
+                <ul class="dropdown-menu" id="parameterDropdown"></ul>
+            </div>
+        </div>
+        
+        <div class="col-10 border border-2 p-5 border-secondary"> 
+        <div class="row">
+          <div class="col ps-5">
+            <div id="EquipmentName"></div>
+          </div>  
+          <div class="col">
+          </div>
+          <div class="col-3 p-0">
+            <button type="button" class="btn btn-danger" id="clearButton" onclick="clear()">Clear</button>
+            <button type="button" class="btn btn-success" id="monitorButton" onclick="monitor()">Monitor</button>
+          </div>
+        </div>
+            <canvas id="myChart"></canvas>
+        </div>
+    </div>
+    
+    <script>
+        var myChart;
+        var ws;
+        function monitor(){
+            
+            console.log('MonitorBTN Works!!');
+        }
+
+        function clear(){
+            console.log('clear');
+        }
+
+        function EnableParameter(){
+            document.getElementById("disabledParameter").classList.remove("disabled");
+        }
+
+        function fetchEquipmentNumbers() {
+            ws = new WebSocket('ws://localhost:8080');
+
+            ws.onopen = function(event) {
+                console.log('WebSocket connection established');
+            };
+
+            ws.onmessage = function(event) {
+                const data = JSON.parse(event.data);
+                populateDropdown(data);
+                console.log('Data received');
+                
+                
+                const selectedEquipment = document.getElementById("EquipmentName").textContent.trim();
+                const selectedParameter = document.getElementById("disabledParameter").textContent.trim();
+                renderChart(data, selectedEquipment, selectedParameter);
+            };
+
+            ws.onclose = function(event) {
+                console.log('WebSocket connection closed');
+            };
+        }
+
+        fetchEquipmentNumbers();
+
+        function renderChart(data, parameter) {
+            if (!Array.isArray(data)) {
+                console.error('Data received is not an array:', data);
+                return;
+            }
+
+            const filteredData = data.filter(item => item.parameter === parameter);
+
+            const labels = filteredData.map(item => item.datetime);
+            const values = filteredData.map(item => item.value);
+            const ucl = filteredData.map(item => item.ucl);
+            const lcl = filteredData.map(item => item.lcl);
+
+            myChart.data.labels = labels;
+            myChart.data.datasets.forEach((dataset, index) => {
+                if (index === 0) {
+                    dataset.data = values;
+                    dataset.label = parameter;
+                } else if (index === 1) {
+                    dataset.data = ucl;
+                    dataset.label = 'UCL';
+                } else if (index === 2) {
+                    dataset.data = lcl;
+                    dataset.label = 'LCL';
+                }
+            });
+
+            const dataLimit = 10;
+            if (myChart.data.labels.length > dataLimit) {
+                const removeCount = myChart.data.labels.length - dataLimit;
+                myChart.data.labels.splice(0, removeCount);
+                myChart.data.datasets.forEach((dataset) => {
+                    dataset.data.splice(0, removeCount);
+                });
+            }
+
+            myChart.update();
+        }
+
+
+        function populateDropdown(data) {
+            const equipmentDropdown = document.getElementById('equipmentDropdown');
+            const parameterDropdown = document.getElementById('parameterDropdown');
+
+            equipmentDropdown.innerHTML = '';
+            parameterDropdown.innerHTML = '';
+
+            const uniqueEquipmentNos = [...new Set(data.map(item => item.label))];
+            const uniqueParameters = [...new Set(data.map(item => item.parameter))];
+
+            uniqueEquipmentNos.forEach(equipmentNo => {
+                const listItem = document.createElement('li');
+                const link = document.createElement('a');
+                link.classList.add('dropdown-item');
+                link.href = '#';
+                link.textContent = equipmentNo;
+                
+                link.onclick = function() {
+                    createEmptyLineGraph();
+                    EnableParameter();
+                    document.getElementById('EquipmentName').innerHTML = equipmentNo;
+                    console.log('EquipmentSelected');
+                };
+                listItem.appendChild(link);
+                equipmentDropdown.appendChild(listItem);
+            });
+            
+            uniqueParameters.forEach(parameter => {
+            const listItem = document.createElement('li');
+            const link = document.createElement('a');
+            link.classList.add('dropdown-item');
+            link.href = '#';
+            link.textContent = parameter;
+            link.onclick = function() {
+                renderChart(data, parameter);
+                console.log('Parameter Selected');
+            };
+            listItem.appendChild(link);
+            parameterDropdown.appendChild(listItem);
+        });
+        }
+
+        function createEmptyLineGraph() {
+            if (myChart) {
+                myChart.destroy();
+            }
+            var ctx = document.getElementById('myChart').getContext('2d');
+            var emptyData = {
+                labels: [],
+                datasets: [
+                    {
+                        label: [],
+                        data: [],
+                        backgroundColor: 'black',
+                        borderColor: '#575656'
+                    },
+                    {
+                        label: [],
+                        data: [],
+                        backgroundColor: 'red',
+                        borderColor: '#FF5252',
+                        fill: 1,
+                        borderDash: [5, 5],
+                    },
+                    {
+                        label: [],
+                        data: [],
+                        backgroundColor: 'blue',
+                        borderColor: '#4141FF',
+                        borderDash: [5, 5],
+                    }
+                ]
+            };
+            myChart = new Chart(ctx, {
+                type: 'line',
+                data: emptyData,
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: true
+                }
+            });
+        }
+        
+    
+    </script>
+</body>
+</html>
