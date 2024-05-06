@@ -1,61 +1,113 @@
-var myChart;
-var ws;
+let myChart;
+let ws;
+let initialRender = true;
 
-function EnableParameter(){
+function EnableParameter() {
     document.getElementById("disabledParameter").classList.remove("disabled");
 }
 
-function initializeWebSocket(){
+function initializeWebSocket() {
     ws = new WebSocket('ws://localhost:8080');
-
-    ws.onopen = function(event) {
-        console.log('WebSocket connection Open');
-    };
-
-    ws.onmessage = function(event) {
+    ws.onopen = () => console.log('WebSocket connection Open');
+    ws.onmessage = event => {
         const data = JSON.parse(event.data);
         populateDropdown(data);
         console.log('Data received');
     };
 }
 
-function renderChart(data, parameter) {
+function renderChart(data, parameters) {
     if (!Array.isArray(data)) {
         console.error('Data received is not an array:', data);
         return;
     }
 
-    const filteredData = data.filter(item => item.parameter === parameter);
+    if (initialRender) {
+        myChart.data.labels = [];
+        myChart.data.datasets = [];
+    }
 
-    const latestEntry = filteredData[filteredData.length - 1];
+    const uniqueLabels = new Set();
 
-    const label = latestEntry.datetime;
-    const value = latestEntry.value;
-    const ucl = latestEntry.ucl;
-    const lcl = latestEntry.lcl;
-    const unit = latestEntry.unit;
+    parameters.forEach(parameter => {
+        const filteredData = data.filter(item => item.parameter === parameter);
+        const latestData = filteredData[filteredData.length - 1];
 
-    myChart.data.labels.push(label);
-    myChart.data.datasets[0].label = parameter + ' ('+ value +''+ unit +')';
-    myChart.data.datasets[1].label = 'ucl ' + '('+ ucl +' '+ unit +')';
-    myChart.data.datasets[2].label = 'lcl ' + '('+ lcl +' '+ unit +')';
+        if (latestData) {
+            if (initialRender || !datasetExists(parameter)) {
+                addDataset(parameter, latestData);
+            }
 
-    myChart.data.datasets[0].data.push(value);
-    myChart.data.datasets[1].data.push(ucl);
-    myChart.data.datasets[2].data.push(lcl); 
+            const parameterIndex = findDatasetIndex(parameter);
+            const uclIndex = findDatasetIndex('UCL', parameterIndex);
+            const lclIndex = findDatasetIndex('LCL', parameterIndex);
 
-    const dataLimit = 10;
+            pushData(parameterIndex, latestData.value);
+            pushData(uclIndex, latestData.ucl);
+            pushData(lclIndex, latestData.lcl);
 
-    if (myChart.data.labels.length > dataLimit) {
+            uniqueLabels.add(latestData.datetime);
+        }
+    });
+
+    uniqueLabels.forEach(label => {
+        if (!myChart.data.labels.includes(label)) {
+            myChart.data.labels.push(label);
+        }
+    });
+
+    while (myChart.data.labels.length > 10) {
         myChart.data.labels.shift();
         myChart.data.datasets.forEach(dataset => dataset.data.shift());
     }
-    
-    myChart.options.scales.x.min = myChart.data.labels[0];
 
+    initialRender = false;
     myChart.update();
 }
 
+function addDataset(parameter, latestData) {
+    myChart.data.datasets.push({
+        label: `${parameter} (${latestData.value}${latestData.unit})`,
+        data: [latestData.value],
+        backgroundColor: 'rgba(54, 162, 235, 0.6)',
+        borderColor: 'rgba(54, 162, 235, 1)',
+        borderWidth: 1
+    });
+
+    myChart.data.datasets.push({
+        label: `UCL (${latestData.ucl}${latestData.unit})`,
+        data: [latestData.ucl],
+        backgroundColor: 'rgba(255, 99, 132, 0.6)',
+        borderColor: 'rgba(255, 99, 132, 1)',
+        pointRadius: 0,
+        borderDash: [2, 2],
+        tension: 0.1,
+        animation: { duration: 0 }
+    });
+
+    myChart.data.datasets.push({
+        label: `LCL (${latestData.lcl}${latestData.unit})`,
+        data: [latestData.lcl],
+        backgroundColor: 'rgba(255, 206, 86, 0.6)',
+        borderColor: 'rgba(255, 206, 86, 1)',
+        pointRadius: 0,
+        borderDash: [2, 2],
+        tension: 0.1,
+        animation: { duration: 0 }
+    });
+}
+
+function pushData(index, value) {
+    myChart.data.datasets[index].data.push(value);
+}
+
+function datasetExists(parameter) {
+    return myChart.data.datasets.some(dataset => dataset.label.startsWith(parameter));
+}
+
+function findDatasetIndex(parameter, startIndex = 0) {
+    return myChart.data.datasets.findIndex((dataset, index) => index >= startIndex && dataset.label.startsWith(parameter));
+}
 
 function populateDropdown(data) {
     const equipmentDropdown = document.getElementById('equipmentDropdown');
@@ -73,44 +125,40 @@ function populateDropdown(data) {
         link.classList.add('dropdown-item');
         link.href = '#';
         link.textContent = equipmentNo;
-        
-        link.onclick = function() {
+        link.onclick = () => {
             document.getElementById('EquipmentName').innerHTML = equipmentNo;
             document.getElementById('equipmentSelect').innerHTML = equipmentNo;
-
             createEmptyLineGraph();
             EnableParameter();
-
             console.log('Equipment Selected');
         };
         listItem.appendChild(link);
         equipmentDropdown.appendChild(listItem);
     });
-    
+
     uniqueParameters.forEach(parameter => {
-        const listItem = document.createElement('li');
-        const link = document.createElement('a');   
-        link.classList.add('dropdown-item');
-        link.href = '#';
-        link.textContent = parameter;
-
-        link.onclick = function() {
-            document.getElementById('disabledParameter').innerHTML = parameter;
-            console.log('Parameter Selected');
-        };
-
-        listItem.appendChild(link);
-        parameterDropdown.appendChild(listItem);
+        const checkboxItem = document.createElement('div');
+        checkboxItem.classList.add('checkbox-item');
+        const checkbox = document.createElement('input');
+        checkbox.classList.add('form-check-input');
+        checkbox.classList.add('dropdown-checkbox');
+        checkbox.type = 'checkbox';
+        checkbox.value = parameter;
+        checkbox.onclick = () => console.log('Parameter Selected');
+        const label = document.createElement('label');
+        label.classList.add('form-check-label');
+        label.textContent = parameter;
+        checkboxItem.appendChild(checkbox);
+        checkboxItem.appendChild(label);
+        parameterDropdown.appendChild(checkboxItem);
     });
 
     document.getElementById('monitorButton').addEventListener('click', function() {
-        const selectedParameter = document.getElementById('disabledParameter').innerHTML;
-        resetChart();
-        renderChart(data, selectedParameter);
-
-        ws.onmessage = function(event) {
-            const newData = JSON.parse(event.data); 
-            renderChart(newData, selectedParameter); 
+        const selectedParameters = Array.from(document.querySelectorAll('#parameterDropdown input[type="checkbox"]:checked')).map(checkbox => checkbox.value);
+        console.log('monitor');
+        ws.onmessage = event => {
+            const newData = JSON.parse(event.data);
+            renderChart(newData, selectedParameters);
             console.log('New data received');
         };
     });
@@ -123,38 +171,7 @@ function createEmptyLineGraph() {
     var ctx = document.getElementById('myChart').getContext('2d');
     var emptyData = {
         labels: [],
-        datasets: [
-            {
-                label: [],
-                data: [],
-                backgroundColor: 'black',
-                borderColor: '#575656',
-                tension: 0.1
-            },
-            {
-                label: [],
-                data: [],
-                backgroundColor: 'rgba(255, 82, 82, 0.5)',
-                borderColor: '#FF5252',
-                pointRadius: 0,
-                borderDash: [],
-                tension: 0.1,
-                animation: { 
-                    duration: 0 
-                }
-            },
-            {
-                label: [],
-                data: [],
-                backgroundColor: 'rgba(82, 82, 255, 0.5)',
-                borderColor: '#4141FF',
-                pointRadius: 0,
-                tension: 0.1,
-                animation: { 
-                    duration: 0 
-                }
-            }
-        ]
+        datasets: []
     };
 
     myChart = new Chart(ctx, {
@@ -172,31 +189,21 @@ function createEmptyLineGraph() {
             }
         }
     });
-    
 }
 
-function resetChart(){
+function resetChart() {
     myChart.data.labels = [];
-    myChart.data.datasets[0].label = [];
-    myChart.data.datasets[1].label = [];
-    myChart.data.datasets[2].label = [];
-
-    myChart.data.datasets[0].data = [];
-    myChart.data.datasets[1].data = [];
-    myChart.data.datasets[2].data = [];
-
+    myChart.data.datasets = [];
     myChart.update();
+    document.getElementById('disabledParameter').innerHTML = 'Parameters';
+    document.querySelectorAll('#parameterDropdown input[type="checkbox"]').forEach(checkbox => {
+        checkbox.checked = false;
+    });
+    console.log('Chart Cleared');
 }
 
-document.getElementById('clearButton').addEventListener('click', () => {
-    resetChart();
-    document.getElementById('disabledParameter').innerHTML = 'Parameters';
-    
-    console.log('Chart Cleared');
-});
+document.getElementById('clearButton').addEventListener('click', resetChart);
 
-document.getElementById('equipmentSelect').addEventListener('click', () => {
-    console.log('Fetching Data ...');
-});
+document.getElementById('equipmentSelect').addEventListener('click', () => console.log('Fetching Data ...'));
 
 initializeWebSocket();
